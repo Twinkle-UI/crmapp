@@ -1,0 +1,30 @@
+# Render Blueprint — backend deployment config
+# https://render.com/docs/infrastructure-as-code
+#
+# This file lets Render auto-configure the service. Optional — you can also
+# set everything manually via the Render dashboard. See DEPLOY.md for the
+# step-by-step manual approach.
+
+services:
+  - type: web
+    name: dashboard-backend
+    env: node
+    region: singapore         # Closest to India for low latency
+    plan: free                # Switch to "starter" ($7/mo) to remove cold starts
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false           # Set manually in dashboard (sensitive)
+      - key: JWT_SECRET
+        sync: false           # Set manually in dashboard (sensitive)
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CLIENT_URL
+        sync: false           # Set after deploying frontend
+      - key: RATE_LIMIT_MAX
+        value: "200"
