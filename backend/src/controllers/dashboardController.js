@@ -20,21 +20,45 @@ const rangeToDate = (range) => {
 };
 
 /**
- * Main dashboard endpoint — returns every widget's data in one call.
- * GET /api/dashboard?range=7|30|90|thisMonth
+ * Build a daily trend array for the given date range.
  *
- * Returns:
- *   - kpis: { totalEmployees, totalRegister, totalAdmission, totalCollection }
- *   - revenueByTeam: [{ teamId, teamName, color, revenue }]
- *   - teamPerformance: [{ team, actual, target }]
- *   - registerThisMonth / admissionThisMonth: small lists for the side widgets
- *   - monthlyTrend: last 6 months collection trend (for an extra chart if needed)
+ * MongoDB returns only days that have data — but the chart needs every day
+ * (otherwise gaps look weird). So after aggregation, we fill in missing days
+ * with count: 0. Result is a continuous date series, perfect for area charts.
+ */
+const buildDailyTrend = (rawData, since) => {
+  // Map of "YYYY-MM-DD" → count from the aggregation
+  const map = new Map(rawData.map((d) => [d._id, d.count]));
+
+  const result = [];
+  const start = new Date(since);
+  start.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Walk day-by-day from `since` to today, filling zeros for empty days
+  const cursor = new Date(start);
+  while (cursor <= today) {
+    const key = cursor.toISOString().split('T')[0]; // "2026-04-15"
+    result.push({
+      date: key,
+      // Display label: "Apr 15" — short, readable on chart x-axis
+      label: cursor.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }),
+      count: map.get(key) || 0,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return result;
+};
+
+/**
+ * Main dashboard endpoint — returns every widget's data in one call.
  */
 export const getDashboard = asyncHandler(async (req, res) => {
   const { range = 'thisMonth' } = req.query;
   const since = rangeToDate(range);
 
-  // Always compute "this month" for the 3 KPIs that say "This month" in the sketch
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -47,27 +71,26 @@ export const getDashboard = asyncHandler(async (req, res) => {
     teams,
     recentRegistrations,
     recentAdmissions,
+    counselorPerformanceRaw,
+    registrationDailyRaw,
+    admissionDailyRaw,
   ] = await Promise.all([
     Employee.countDocuments({ status: 'active' }),
     Registration.countDocuments({ createdAt: { $gte: monthStart } }),
     Admission.countDocuments({ admittedOn: { $gte: monthStart } }),
 
-    // Total collection this month
     Collection.aggregate([
       { $match: { receivedOn: { $gte: monthStart } } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]),
 
-    // Revenue by team (within selected range — drives the "Revenue by Team" card)
     Collection.aggregate([
       { $match: { receivedOn: { $gte: since } } },
       { $group: { _id: '$team', revenue: { $sum: '$amount' } } },
     ]),
 
-    // Teams (for joining names + targets)
     Team.find().lean(),
 
-    // Side widgets — recent registrations / admissions this month
     Registration.find({ createdAt: { $gte: monthStart } })
       .populate('team', 'name')
       .sort({ createdAt: -1 })
@@ -78,9 +101,56 @@ export const getDashboard = asyncHandler(async (req, res) => {
       .sort({ admittedOn: -1 })
       .limit(5)
       .lean(),
+
+    // Counselor performance — within selected range
+    Admission.aggregate([
+      { $match: { admittedOn: { $gte: since } } },
+      {
+        $group: {
+          _id: { $toLower: { $trim: { input: '$counselorName' } } },
+          displayName: { $first: '$counselorName' },
+          admissions: { $sum: 1 },
+          revenue: { $sum: '$feeAmount' },
+        },
+      },
+      { $sort: { revenue: -1, admissions: -1 } },
+      { $limit: 10 },
+      {
+        $project: {
+          _id: 0,
+          counselorName: '$displayName',
+          admissions: 1,
+          revenue: 1,
+        },
+      },
+    ]),
+
+    // Daily registrations within selected range
+    // dateToString formats the date once at DB level — fast and timezone-safe
+    Registration.aggregate([
+      { $match: { createdAt: { $gte: since } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
+
+    // Daily admissions within selected range
+    Admission.aggregate([
+      { $match: { admittedOn: { $gte: since } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$admittedOn' } },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
   ]);
 
-  // Stitch revenueByTeam with team metadata
   const teamMap = new Map(teams.map((t) => [String(t._id), t]));
   const revenueByTeam = revenueByTeamRaw.map((r) => {
     const t = teamMap.get(String(r._id));
@@ -92,7 +162,6 @@ export const getDashboard = asyncHandler(async (req, res) => {
     };
   });
 
-  // Team Performance vs Target — every team gets an entry, even if revenue is 0
   const teamPerformance = teams.map((t) => {
     const found = revenueByTeamRaw.find((r) => String(r._id) === String(t._id));
     return {
@@ -103,7 +172,6 @@ export const getDashboard = asyncHandler(async (req, res) => {
     };
   });
 
-  // Monthly trend (last 6 months) — useful extra
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
   sixMonthsAgo.setDate(1);
@@ -127,6 +195,10 @@ export const getDashboard = asyncHandler(async (req, res) => {
     },
   ]);
 
+  // Fill in missing days with 0 — area charts need continuous data
+  const registrationDaily = buildDailyTrend(registrationDailyRaw, since);
+  const admissionDaily = buildDailyTrend(admissionDailyRaw, since);
+
   res.json({
     success: true,
     data: {
@@ -141,6 +213,9 @@ export const getDashboard = asyncHandler(async (req, res) => {
       monthlyTrend,
       recentRegistrations,
       recentAdmissions,
+      counselorPerformance: counselorPerformanceRaw,
+      registrationDaily,
+      admissionDaily,
     },
   });
 });

@@ -1,13 +1,21 @@
-import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Search, Bell, Sun, Moon, LogOut, User as UserIcon } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Input } from '@/components/ui/Input';
-import { useThemeStore } from '@/store/themeStore';
-import { useAuthStore } from '@/store/authStore';
-import { cn } from '@/lib/utils';
+import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Search,
+  Bell,
+  Sun,
+  Moon,
+  LogOut,
+  User as UserIcon,
+  Menu,
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Input } from "@/components/ui/Input";
+import { useThemeStore } from "@/store/themeStore";
+import { useAuthStore } from "@/store/authStore";
+import { cn } from "@/lib/utils";
 
-export const Navbar = () => {
+export const Navbar = ({ onMenuClick }) => {
   const { theme, toggleTheme } = useThemeStore();
   const { user, logout } = useAuthStore();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -18,20 +26,31 @@ export const Navbar = () => {
 
   useEffect(() => {
     const handler = (e) => {
-      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false);
-      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
+      if (profileRef.current && !profileRef.current.contains(e.target))
+        setProfileOpen(false);
+      if (notifRef.current && !notifRef.current.contains(e.target))
+        setNotifOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate("/login");
   };
 
   return (
-    <header className="sticky top-0 z-20 flex h-16 items-center gap-4 border-b border-border bg-background/80 px-4 backdrop-blur md:px-6">
+    <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur md:px-6">
+      {/* Hamburger menu — visible only on mobile */}
+      <button
+        onClick={onMenuClick}
+        className="rounded-md p-2 transition-colors hover:bg-accent md:hidden"
+        aria-label="Open menu"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
       <div className="relative max-w-md flex-1">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -46,7 +65,11 @@ export const Navbar = () => {
           className="rounded-md p-2 transition-colors hover:bg-accent"
           aria-label="Toggle theme"
         >
-          {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          {theme === "dark" ? (
+            <Sun className="h-5 w-5" />
+          ) : (
+            <Moon className="h-5 w-5" />
+          )}
         </button>
 
         <div className="relative" ref={notifRef}>
@@ -69,7 +92,9 @@ export const Navbar = () => {
                   <p className="font-medium">Notifications</p>
                 </div>
                 <div className="max-h-80 overflow-y-auto p-2">
-                  <div className="rounded-lg p-3 text-sm text-muted-foreground">No new notifications</div>
+                  <div className="rounded-lg p-3 text-sm text-muted-foreground">
+                    No new notifications
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -79,12 +104,17 @@ export const Navbar = () => {
         <div className="relative ml-2" ref={profileRef}>
           <button
             onClick={() => setProfileOpen((v) => !v)}
-            className={cn('flex items-center gap-2 rounded-full p-1 pr-3 transition-colors', 'hover:bg-accent')}
+            className={cn(
+              "flex items-center gap-2 rounded-full p-1 pr-3 transition-colors",
+              "hover:bg-accent",
+            )}
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
-              {user?.name?.[0]?.toUpperCase() || 'U'}
+              {user?.name?.[0]?.toUpperCase() || "U"}
             </div>
-            <span className="hidden text-sm font-medium md:inline">{user?.name?.split(' ')[0]}</span>
+            <span className="hidden text-sm font-medium md:inline">
+              {user?.name?.split(" ")[0]}
+            </span>
           </button>
           <AnimatePresence>
             {profileOpen && (
