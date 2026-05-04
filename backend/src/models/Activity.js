@@ -1,13 +1,5 @@
 import mongoose from "mongoose";
 
-/**
- * Activity log — every meaningful user action gets recorded here.
- * Powers the "Recent Activity" feed on the dashboard.
- *
- * The `type` enum is the authoritative list of trackable events.
- * When adding a new event type elsewhere in the app, add it here first
- * or you'll get the "not a valid enum value" error at validation time.
- */
 const activitySchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -39,13 +31,16 @@ const activitySchema = new mongoose.Schema(
         "employee_updated",
         "employee_deleted",
 
+        // User management events
+        "user_added",
+        "user_updated",
+        "user_deleted",
+
         // Bulk import events
         "bulk_import",
       ],
     },
     message: { type: String, required: true },
-    // Free-form metadata (e.g. { admissionId, amount, etc. }) — not validated,
-    // intentionally flexible because each event type carries different data.
     meta: { type: mongoose.Schema.Types.Mixed },
   },
   { timestamps: true },
